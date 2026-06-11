@@ -2280,6 +2280,7 @@ select:focus:not(:focus-visible) { outline: none; }
             <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
               <button class="btn-admin success" onclick="adminSavePlayers()">💾 Sauvegarder les joueurs</button>
               <button class="btn-admin" onclick="adminAddPlayerRow()">+ Ajouter un joueur</button>
+              <button class="btn-admin" id="btn-publish-players" onclick="adminPublishPlayers()" style="display:none;background:var(--accent);color:#fff;">📤 Publier pour tous</button>
             </div>
             <div id="admin-players-status" style="margin-top:8px;font-size:13px;color:var(--accent);"></div>
           </div>
@@ -2953,15 +2954,22 @@ async function loadMatches() {
   // Le calendrier vient toujours du code (MATCHES_SEED), jamais de Supabase
   state.matches = MATCHES_SEED.map(m => ({ ...m }));
   if (!db) return;
-  // On récupère uniquement les résultats depuis Supabase
-  const { data, error } = await db.from('matches').select('id,result_home,result_away,result_scorers').order('id');
+  // Résultats + joueurs publiés par l'admin depuis Supabase
+  const { data, error } = await db.from('matches').select('id,result_home,result_away,result_scorers,home_players,away_players').order('id');
   if (error || !data) return;
-  const resultMap = {};
-  for (const r of data) resultMap[r.id] = r;
+  const dbMap = {};
+  for (const r of data) dbMap[r.id] = r;
   state.matches = state.matches.map(m => {
-    const r = resultMap[m.id];
+    const r = dbMap[m.id];
     if (!r) return m;
-    return { ...m, result_home: r.result_home, result_away: r.result_away, result_scorers: r.result_scorers || [] };
+    return {
+      ...m,
+      result_home: r.result_home,
+      result_away: r.result_away,
+      result_scorers: r.result_scorers || [],
+      home_players: (r.home_players?.length > 0) ? r.home_players : m.home_players,
+      away_players: (r.away_players?.length > 0) ? r.away_players : m.away_players,
+    };
   });
 }
 
@@ -3570,7 +3578,30 @@ async function adminSavePlayers() {
   }
 
   renderMatches();
+  document.getElementById('btn-publish-players').style.display = '';
   showToast(`✅ Effectif de ${teamName} mis à jour`);
+}
+
+async function adminPublishPlayers() {
+  const teamName = document.getElementById('admin-team-select').value;
+  if (!teamName) return;
+  const statusEl = document.getElementById('admin-players-status');
+  const players = TEAMS[teamName]?.players || [];
+  if (players.length === 0) { statusEl.textContent = '⚠️ Sauvegarde d\'abord les joueurs'; return; }
+  if (!db) { statusEl.textContent = '⚠️ Pas de connexion Supabase'; return; }
+  statusEl.textContent = '⏳ Publication en cours...';
+  const toUpdate = state.matches.filter(m => m.home === teamName || m.away === teamName);
+  let updated = 0;
+  for (const m of toUpdate) {
+    const patch = { id: m.id };
+    if (m.home === teamName) patch.home_players = players;
+    if (m.away === teamName) patch.away_players = players;
+    const { error } = await db.from('matches').upsert(patch, { onConflict: 'id' });
+    if (!error) updated++;
+  }
+  statusEl.textContent = `✅ Publié · ${updated} matchs mis à jour pour tous les joueurs`;
+  document.getElementById('btn-publish-players').style.display = 'none';
+  showToast(`📤 Effectif de ${teamName} visible par tous !`);
 }
 
 function loadCustomPlayers() {

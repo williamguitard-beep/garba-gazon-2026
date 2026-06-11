@@ -3271,6 +3271,8 @@ async function saveProno(matchId) {
     scorer_goals[player] = state.scorerGoals[matchId + '.' + player] || 1;
   });
 
+  if (!state.user?.id) { showToast('❌ Non connecté', '#FF1744'); return; }
+
   const btn = document.getElementById('btn' + matchId);
   if (btn) { btn.disabled = true; btn.textContent = 'Sauvegarde...'; }
 
@@ -3320,7 +3322,9 @@ async function saveProno(matchId) {
     window.history.replaceState({}, '', url);
 
   } catch (err) {
-    showToast('❌ ' + err.message, '#FF1744');
+    console.error('saveProno error:', err);
+    const msg = err?.message || err?.details || JSON.stringify(err) || 'Erreur inconnue';
+    showToast('❌ ' + msg, '#FF1744');
     if (btn) { btn.disabled = false; btn.textContent = '💾 Réessayer'; }
   }
 }

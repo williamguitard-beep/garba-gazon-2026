@@ -3276,6 +3276,18 @@ async function saveProno(matchId) {
 
   try {
     if (db) {
+      // S'assurer que la ligne match existe (FK constraint)
+      const m = state.matches.find(x => x.id === matchId);
+      if (m) {
+        await db.from('matches').upsert({
+          id: m.id, phase: m.phase, home: m.home, away: m.away,
+          home_flag: m.home_flag, away_flag: m.away_flag,
+          match_date: m.match_date, match_time: m.match_time,
+          home_players: m.home_players || [], away_players: m.away_players || [],
+          result_home: m.result_home ?? null, result_away: m.result_away ?? null,
+          result_scorers: m.result_scorers || [],
+        }, { onConflict: 'id' });
+      }
       const { error } = await db.from('pronos').upsert({
         user_id:    state.user.id,
         match_id:   matchId,

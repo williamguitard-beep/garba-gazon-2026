@@ -2280,7 +2280,7 @@ select:focus:not(:focus-visible) { outline: none; }
             <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
               <button class="btn-admin success" onclick="adminSavePlayers()">💾 Sauvegarder les joueurs</button>
               <button class="btn-admin" onclick="adminAddPlayerRow()">+ Ajouter un joueur</button>
-              <button class="btn-admin" id="btn-publish-players" onclick="adminPublishPlayers()" style="display:none;background:var(--accent);color:#fff;">📤 Publier pour tous</button>
+              <button class="btn-admin" id="btn-publish-players" onclick="adminPublishPlayers()" style="background:var(--accent);color:#fff;">📤 Publier pour tous</button>
             </div>
             <div id="admin-players-status" style="margin-top:8px;font-size:13px;color:var(--accent);"></div>
           </div>
@@ -3578,7 +3578,6 @@ async function adminSavePlayers() {
   }
 
   renderMatches();
-  document.getElementById('btn-publish-players').style.display = '';
   showToast(`✅ Effectif de ${teamName} mis à jour`);
 }
 
@@ -3600,7 +3599,6 @@ async function adminPublishPlayers() {
     if (!error) updated++;
   }
   statusEl.textContent = `✅ Publié · ${updated} matchs mis à jour pour tous les joueurs`;
-  document.getElementById('btn-publish-players').style.display = 'none';
   showToast(`📤 Effectif de ${teamName} visible par tous !`);
 }
 

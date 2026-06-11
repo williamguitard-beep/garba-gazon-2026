@@ -3290,7 +3290,7 @@ async function saveProno(matchId) {
           result_scorers: m.result_scorers || [],
         }, { onConflict: 'id' });
       }
-      const { error } = await db.from('pronos').upsert({
+      let pronoPayload = {
         user_id:    state.user.id,
         match_id:   matchId,
         score_home: h,
@@ -3298,7 +3298,14 @@ async function saveProno(matchId) {
         scorers,
         scorer_goals,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,match_id' });
+      };
+      let { error } = await db.from('pronos').upsert(pronoPayload, { onConflict: 'user_id,match_id' });
+      // Retry without scorer_goals if column doesn't exist yet
+      if (error?.message?.includes('scorer_goals')) {
+        delete pronoPayload.scorer_goals;
+        const retry = await db.from('pronos').upsert(pronoPayload, { onConflict: 'user_id,match_id' });
+        error = retry.error;
+      }
       if (error) throw error;
     }
 

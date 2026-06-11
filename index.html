@@ -663,7 +663,7 @@ body::after {
 
 .buteurs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
   gap: 5px;
 }
 
@@ -679,8 +679,6 @@ body::after {
   transition: all 0.15s;
   text-align: left;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -3053,18 +3051,28 @@ function filterPhase(phase) {
   renderMatches();
 }
 
+function posOrder(name) {
+  if (name.endsWith('(A)')) return 0;
+  if (name.endsWith('(M)')) return 1;
+  if (name.endsWith('(D)')) return 2;
+  if (name.endsWith('(G)')) return 3;
+  return 4;
+}
+
 function buildScorerSection(matchId, homePlayers, awayPlayers, homeScorers, awayScorers, m, homeTeam, awayTeam, locked) {
   const VISIBLE = 5;
-  const homeAll = homePlayers.map((p, i) => ({ p, i, btn: makePlayerBtnForTeam(matchId, p, 'home', m, homeTeam, awayTeam, locked) }));
-  const awayAll  = awayPlayers.map((p, i) => ({ p, i, btn: makePlayerBtnForTeam(matchId, p, 'away', m, homeTeam, awayTeam, locked) }));
+  const sortedHome = [...homePlayers].sort((a,b) => posOrder(a) - posOrder(b));
+  const sortedAway = [...awayPlayers].sort((a,b) => posOrder(a) - posOrder(b));
+  const homeAll = sortedHome.map((p, i) => ({ p, i, btn: makePlayerBtnForTeam(matchId, p, 'home', m, homeTeam, awayTeam, locked) }));
+  const awayAll  = sortedAway.map((p, i) => ({ p, i, btn: makePlayerBtnForTeam(matchId, p, 'away', m, homeTeam, awayTeam, locked) }));
 
   const homeVisible = homeAll.slice(0, VISIBLE).map(x => x.btn).join('');
   const homeHidden  = homeAll.slice(VISIBLE).map(x => x.btn).join('');
   const awayVisible  = awayAll.slice(0, VISIBLE).map(x => x.btn).join('');
   const awayHidden   = awayAll.slice(VISIBLE).map(x => x.btn).join('');
 
-  const homeExtra = homePlayers.length > VISIBLE ? homePlayers.length - VISIBLE : 0;
-  const awayExtra  = awayPlayers.length > VISIBLE ? awayPlayers.length - VISIBLE : 0;
+  const homeExtra = sortedHome.length > VISIBLE ? sortedHome.length - VISIBLE : 0;
+  const awayExtra  = sortedAway.length > VISIBLE ? sortedAway.length - VISIBLE : 0;
   const hasExtra = homeExtra > 0 || awayExtra > 0;
 
   const homeHdr = `${m.home_flag || homeTeam.flag || '🏳️'} ${m.home}`;

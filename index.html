@@ -3566,10 +3566,16 @@ async function adminSavePlayers() {
   if (db) {
     const toUpdate = state.matches.filter(m => m.home === teamName || m.away === teamName);
     for (const m of toUpdate) {
-      const patch = {};
-      if (m.home === teamName) patch.home_players = players;
-      if (m.away === teamName) patch.away_players = players;
-      const { error } = await db.from('matches').update(patch).eq('id', m.id);
+      const row = {
+        id: m.id, phase: m.phase, home: m.home, away: m.away,
+        home_flag: m.home_flag, away_flag: m.away_flag,
+        match_date: m.match_date, match_time: m.match_time,
+        home_players: m.home === teamName ? players : (m.home_players || []),
+        away_players: m.away === teamName ? players : (m.away_players || []),
+        result_home: m.result_home ?? null, result_away: m.result_away ?? null,
+        result_scorers: m.result_scorers || [],
+      };
+      const { error } = await db.from('matches').upsert(row, { onConflict: 'id' });
       if (!error) updated++;
     }
     statusEl.textContent = `✅ ${players.length} joueurs sauvegardés · ${updated} matchs mis à jour en base`;
@@ -3591,15 +3597,27 @@ async function adminPublishPlayers() {
   statusEl.textContent = '⏳ Publication en cours...';
   const toUpdate = state.matches.filter(m => m.home === teamName || m.away === teamName);
   let updated = 0;
+  let lastError = null;
   for (const m of toUpdate) {
-    const patch = { id: m.id };
-    if (m.home === teamName) patch.home_players = players;
-    if (m.away === teamName) patch.away_players = players;
-    const { error } = await db.from('matches').upsert(patch, { onConflict: 'id' });
+    const row = {
+      id: m.id, phase: m.phase, home: m.home, away: m.away,
+      home_flag: m.home_flag, away_flag: m.away_flag,
+      match_date: m.match_date, match_time: m.match_time,
+      home_players: m.home === teamName ? players : (m.home_players || []),
+      away_players: m.away === teamName ? players : (m.away_players || []),
+      result_home: m.result_home ?? null, result_away: m.result_away ?? null,
+      result_scorers: m.result_scorers || [],
+    };
+    const { error } = await db.from('matches').upsert(row, { onConflict: 'id' });
     if (!error) updated++;
+    else lastError = error;
   }
-  statusEl.textContent = `✅ Publié · ${updated} matchs mis à jour pour tous les joueurs`;
-  showToast(`📤 Effectif de ${teamName} visible par tous !`);
+  if (updated > 0) {
+    statusEl.textContent = `✅ Publié · ${updated} matchs mis à jour pour tous`;
+    showToast(`📤 Effectif de ${teamName} visible par tous !`);
+  } else {
+    statusEl.textContent = `❌ Échec publication · ${lastError?.message || 'vérifier Supabase'}`;
+  }
 }
 
 function loadCustomPlayers() {

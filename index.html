@@ -2269,7 +2269,7 @@ select:focus:not(:focus-visible) { outline: none; }
         <div class="admin-title">👥 Effectifs des équipes</div>
         <div class="admin-card">
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6;">
-            Modifie les 15 joueurs d'une équipe. Sauvegarde en local et met à jour tous leurs matchs en base.
+            Modifie les 26 joueurs d'une équipe (liste FIFA officielle). Sauvegarde en local et met à jour tous leurs matchs en base.
           </p>
           <select class="admin-select" id="admin-team-select" onchange="adminLoadTeamPlayers()">
             <option value="">-- Sélectionner une équipe --</option>
@@ -3120,7 +3120,7 @@ function buildMatchCard(m) {
   card.id = `match-card-${m.id}`;
   card.className = `match-card ${prono ? 'has-prono' : ''} ${locked ? 'locked' : ''} ${hasResult ? 'result-in' : ''}`;
 
-  // TEAMS est toujours prioritaire (15 joueurs), Supabase en fallback
+  // TEAMS est toujours prioritaire (26 joueurs), Supabase en fallback
   const homePlayers = homeTeam.players?.length ? homeTeam.players : (m.home_players || []);
   const awayPlayers = awayTeam.players?.length ? awayTeam.players : (m.away_players || []);
   const allPlayers = [...homePlayers, ...awayPlayers];
@@ -3511,7 +3511,7 @@ function adminLoadTeamPlayers() {
   const form = document.getElementById('admin-players-form');
   if (!teamName) { form.style.display = 'none'; return; }
   const players = (TEAMS[teamName]?.players || []).slice();
-  while (players.length < 15) players.push('');
+  while (players.length < 26) players.push('');
   const grid = document.getElementById('admin-players-grid');
   grid.innerHTML = players.map((p, i) =>
     `<input class="admin-player-input" type="text" value="${p.replace(/"/g, '&quot;')}" placeholder="Joueur ${i+1}">`

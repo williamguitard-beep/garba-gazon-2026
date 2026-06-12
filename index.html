@@ -2727,13 +2727,18 @@ function isMatchLocked(match) {
 }
 
 function isMatchToday(match) {
-  if (!match.match_date) return false;
+  if (!match.match_date || !match.match_time) return false;
   const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
   const parts = match.match_date.trim().split(' ');
   const day = parseInt(parts[0]);
   const mon = parts[1] ? MONTHS[parts[1]] : 5;
-  const now = new Date();
-  return now.getFullYear() === 2026 && now.getMonth() === mon && now.getDate() === day;
+  const timeParts = match.match_time.replace('h', ':').split(':');
+  const h = parseInt(timeParts[0]);
+  const m = parseInt(timeParts[1] || 0);
+  const kickoff = new Date(2026, mon, day, h, m).getTime();
+  const now = Date.now();
+  // Affiche les matchs dans les 24h à venir (pas encore joués)
+  return kickoff >= now && kickoff <= now + 24 * 60 * 60 * 1000;
 }
 
 function calcPoints(prono, match) {

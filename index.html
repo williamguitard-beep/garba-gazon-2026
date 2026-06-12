@@ -1321,6 +1321,9 @@ select:focus:not(:focus-visible) { outline: none; }
 #app[data-tab="today"] #page-matchs {
   background: linear-gradient(180deg, rgba(0,200,83,0.04) 0%, transparent 250px);
 }
+#app[data-tab="calendrier"] #page-calendrier {
+  background: linear-gradient(180deg, rgba(0,200,83,0.025) 0%, transparent 250px);
+}
 
 /* ===== SIDE PANELS (desktop only) ===== */
 .app-side-panel {
@@ -1986,8 +1989,9 @@ select:focus:not(:focus-visible) { outline: none; }
 
   <nav class="nav-outer" aria-label="Navigation principale">
     <div class="tabs" id="tabs" role="tablist" aria-label="Sections">
-      <div class="tab active" data-tab="today" role="tab" aria-selected="true" tabindex="0">📅 Aujourd'hui</div>
+      <div class="tab active" data-tab="today" role="tab" aria-selected="true" tabindex="0">📅 Prochains matchs</div>
       <div class="tab" data-tab="matchs" role="tab" aria-selected="false" tabindex="-1">🗓 Matchs</div>
+      <div class="tab" data-tab="calendrier" role="tab" aria-selected="false" tabindex="-1">📆 Calendrier</div>
       <div class="tab" data-tab="mybets" role="tab" aria-selected="false" tabindex="-1">🎯 Mes paris</div>
       <div class="tab" data-tab="classement" role="tab" aria-selected="false" tabindex="-1">🏆 Classement</div>
       <div class="tab" data-tab="slack" role="tab" aria-selected="false" tabindex="-1">💬 Slack</div>
@@ -2003,6 +2007,11 @@ select:focus:not(:focus-visible) { outline: none; }
     <div id="page-matchs" class="page active">
       <div class="phase-filter" id="phase-filter"></div>
       <div id="matches-container"></div>
+    </div>
+
+    <!-- PAGE CALENDRIER -->
+    <div id="page-calendrier" class="page">
+      <div id="calendrier-container"></div>
     </div>
 
     <!-- PAGE CLASSEMENT -->
@@ -2726,6 +2735,25 @@ function isMatchLocked(match) {
   return Date.now() > kickoff.getTime();
 }
 
+function getWeekendWindow() {
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun,1=Mon,...,5=Fri,6=Sat
+  // Weekend window: Friday 00:00 → Monday 08:00
+  // Active from Friday through Monday 08:00
+  const isWeekend = dow === 5 || dow === 6 || dow === 0 || (dow === 1 && now.getHours() < 8);
+  if (!isWeekend) return null;
+  // Find the most recent Friday
+  const daysToFri = (dow === 5) ? 0 : (dow === 6) ? 1 : (dow === 0) ? 2 : 3;
+  const friday = new Date(now);
+  friday.setDate(friday.getDate() - daysToFri);
+  friday.setHours(0, 0, 0, 0);
+  // Monday 08:00
+  const monday = new Date(friday);
+  monday.setDate(monday.getDate() + 3);
+  monday.setHours(8, 0, 0, 0);
+  return { from: friday.getTime(), to: monday.getTime() };
+}
+
 function isMatchToday(match) {
   if (!match.match_date || !match.match_time) return false;
   const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
@@ -2737,7 +2765,12 @@ function isMatchToday(match) {
   const m = parseInt(timeParts[1] || 0);
   const kickoff = new Date(2026, mon, day, h, m).getTime();
   const now = Date.now();
-  // Affiche les matchs dans les 24h à venir (pas encore joués)
+  const weekend = getWeekendWindow();
+  if (weekend) {
+    // Weekend mode: show all matches Friday→Monday 08:00
+    return kickoff >= weekend.from && kickoff <= weekend.to;
+  }
+  // Semaine: prochaines 24h (match pas encore joué)
   return kickoff >= now && kickoff <= now + 24 * 60 * 60 * 1000;
 }
 
@@ -2920,9 +2953,10 @@ function switchTab(tab) {
     t.setAttribute('tabindex', isActive ? '0' : '-1');
   });
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const pageId = tab === 'today' ? 'page-matchs' : 'page-' + tab;
+  const pageId = (tab === 'today' || tab === 'matchs') ? 'page-matchs' : 'page-' + tab;
   document.getElementById(pageId).classList.add('active');
   if (tab === 'today' || tab === 'matchs') renderMatches();
+  if (tab === 'calendrier') renderCalendrier();
   if (tab === 'mybets') renderMyBets();
   if (tab === 'classement') { renderLeaderboard(); renderScorersLeaderboard(); }
   if (tab === 'slack') renderSlack();
@@ -3016,7 +3050,9 @@ function renderMatches() {
     const open = todayMatches.length - locked;
     const banner = document.createElement('div');
     banner.className = 'today-banner';
-    banner.innerHTML = `📅 <strong>${todayMatches.length} match${todayMatches.length > 1 ? 's' : ''} aujourd'hui</strong> · ${open > 0 ? `<span style="color:var(--accent)">${open} ouvert${open > 1 ? 's' : ''}</span>` : ''} ${locked > 0 ? `· ${locked} verrouillé${locked > 1 ? 's' : ''}` : ''}`;
+    const weekendWin = getWeekendWindow();
+    const bannerLabel = weekendWin ? '📅 Week-end' : '📅 Prochaines 24h';
+    banner.innerHTML = `${bannerLabel} <strong>${todayMatches.length} match${todayMatches.length > 1 ? 's' : ''}</strong> · ${open > 0 ? `<span style="color:var(--accent)">${open} ouvert${open > 1 ? 's' : ''}</span>` : ''} ${locked > 0 ? `· ${locked} verrouillé${locked > 1 ? 's' : ''}` : ''}`;
     container.appendChild(banner);
 
     todayMatches.forEach(m => container.appendChild(buildMatchCard(m)));
@@ -3338,6 +3374,51 @@ async function saveProno(matchId) {
     const msg = err?.message || err?.details || JSON.stringify(err) || 'Erreur inconnue';
     showToast('❌ ' + msg, '#FF1744');
     if (btn) { btn.disabled = false; btn.textContent = '💾 Réessayer'; }
+  }
+}
+
+
+// =====================================================================
+// CALENDRIER — tous les matchs triés par date
+// =====================================================================
+function renderCalendrier() {
+  const container = document.getElementById('calendrier-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Sort all matches by date then time
+  const sorted = [...state.matches].sort((a, b) => {
+    const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    const toMs = m => {
+      if (!m.match_date) return 0;
+      const p = m.match_date.trim().split(' ');
+      const tp = (m.match_time || '00h00').replace('h',':').split(':');
+      return new Date(2026, MONTHS[p[1]] ?? 5, parseInt(p[0]), parseInt(tp[0]), parseInt(tp[1] || 0)).getTime();
+    };
+    return toMs(a) - toMs(b);
+  });
+
+  let currentDate = '';
+  sorted.forEach(m => {
+    if (m.home === '???') return;
+    if (m.match_date !== currentDate) {
+      currentDate = m.match_date;
+      const sep = document.createElement('div');
+      sep.className = 'section-title';
+      const dow = (() => {
+        const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+        const p = m.match_date.trim().split(' ');
+        const d = new Date(2026, MONTHS[p[1]] ?? 5, parseInt(p[0]));
+        return d.toLocaleDateString('fr-FR', { weekday: 'long' });
+      })();
+      sep.textContent = `${dow.charAt(0).toUpperCase() + dow.slice(1)} ${m.match_date}`;
+      container.appendChild(sep);
+    }
+    container.appendChild(buildMatchCard(m));
+  });
+
+  if (sorted.filter(m => m.home !== '???').length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📆</div><p>Aucun match disponible</p></div>';
   }
 }
 

@@ -3777,14 +3777,25 @@ function adminLoadMatchResult() {
   document.getElementById('admin-score-home').value = m.result_home ?? '';
   document.getElementById('admin-score-away').value = m.result_away ?? '';
 
+  const goalCounts = {};
+  for (const p of (m.result_scorers || [])) goalCounts[p] = (goalCounts[p] || 0) + 1;
+
   const allPlayers = [...(m.home_players || []), ...(m.away_players || [])];
   const grid = document.getElementById('admin-scorers-grid');
   grid.innerHTML = allPlayers.map(p => {
-    const sel = (m.result_scorers || []).includes(p);
-    return `<button class="buteur-btn ${sel ? 'selected' : ''}"
+    const goals = goalCounts[p] || 0;
+    return `<button class="buteur-btn ${goals > 0 ? 'selected' : ''}"
       data-player="${p}"
-      onclick="this.classList.toggle('selected')">${p}</button>`;
+      data-goals="${goals}"
+      onclick="adminCycleGoals(this)">${p}${goals > 1 ? ` ×${goals}` : ''}</button>`;
   }).join('');
+}
+
+function adminCycleGoals(btn) {
+  let goals = (parseInt(btn.dataset.goals) + 1) % 5;
+  btn.dataset.goals = goals;
+  btn.textContent = btn.dataset.player + (goals > 1 ? ` ×${goals}` : '');
+  btn.classList.toggle('selected', goals > 0);
 }
 
 async function adminSaveResult() {
@@ -3795,8 +3806,11 @@ async function adminSaveResult() {
   const ra = parseInt(document.getElementById('admin-score-away').value);
   if (isNaN(rh) || isNaN(ra)) { showToast('⚠️ Entre les deux scores', '#FF9800'); return; }
 
-  const scorers = [...document.querySelectorAll('#admin-scorers-grid .buteur-btn.selected')]
-    .map(b => b.dataset.player);
+  const scorers = [];
+  document.querySelectorAll('#admin-scorers-grid .buteur-btn').forEach(b => {
+    const goals = parseInt(b.dataset.goals || 0);
+    for (let i = 0; i < goals; i++) scorers.push(b.dataset.player);
+  });
 
   showLoading(true);
   try {

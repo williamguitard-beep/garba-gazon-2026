@@ -1139,6 +1139,19 @@ body::after {
   margin-bottom: 6px;
 }
 
+/* ===== BACKUP ROWS ===== */
+.backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  margin-bottom: 6px;
+}
+
 /* ===== TOAST ===== */
 #toast {
   position: fixed;
@@ -2369,6 +2382,17 @@ select:focus:not(:focus-visible) { outline: none; }
       </div>
 
       <div class="admin-section">
+        <div class="admin-title">⏮ Sauvegardes & restauration</div>
+        <div class="admin-card">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6;">
+            Une sauvegarde est créée automatiquement avant chaque modification de résultat (10 max, sur cet appareil). Restaurer écrase les résultats actuels et recalcule tous les points.
+          </p>
+          <button class="btn-admin" style="margin-bottom:14px;" onclick="adminTakeSnapshot();adminRenderBackups();showToast('📸 Sauvegarde créée');">📸 Sauvegarder l'état actuel</button>
+          <div id="admin-backups-list"></div>
+        </div>
+      </div>
+
+      <div class="admin-section">
         <div class="admin-title">SQL Setup Supabase</div>
         <div class="admin-card">
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Copie et exécute ce SQL dans l'éditeur Supabase (SQL Editor → New query) :</p>
@@ -3029,6 +3053,7 @@ function switchTab(tab) {
     populateAdminTeamSelect();
     document.getElementById('admin-app-url').value = state.settings.appUrl;
     document.getElementById('admin-slack-channel').value = state.settings.slackChannel;
+    adminRenderBackups();
   }
 }
 
@@ -3870,6 +3895,8 @@ async function adminSaveResult() {
   const ra = parseInt(document.getElementById('admin-score-away').value);
   if (isNaN(rh) || isNaN(ra)) { showToast('⚠️ Entre les deux scores', '#FF9800'); return; }
 
+  adminTakeSnapshot(); // auto-snapshot before any change
+
   const scorers = [];
   document.querySelectorAll('#admin-scorers-grid .buteur-btn').forEach(b => {
     const goals = parseInt(b.dataset.goals || 0);
@@ -3913,6 +3940,86 @@ async function adminSaveResult() {
 
   } catch (err) {
     showToast('❌ ' + err.message, '#FF1744');
+  } finally {
+    showLoading(false);
+  }
+}
+
+// =====================================================================
+// BACKUP / RESTORE
+// =====================================================================
+function adminTakeSnapshot() {
+  const results = state.matches
+    .filter(m => m.result_home !== null && m.result_home !== undefined)
+    .map(m => ({ id: m.id, result_home: m.result_home, result_away: m.result_away, result_scorers: m.result_scorers || [] }));
+  if (results.length === 0) return;
+  const ts = Date.now();
+  localStorage.setItem('garba_backup_' + ts, JSON.stringify({ ts, count: results.length, results }));
+  // Keep last 10 snapshots
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('garba_backup_')).sort();
+  if (keys.length > 10) keys.slice(0, keys.length - 10).forEach(k => localStorage.removeItem(k));
+}
+
+function adminRenderBackups() {
+  const el = document.getElementById('admin-backups-list');
+  if (!el) return;
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('garba_backup_')).sort().reverse();
+  if (keys.length === 0) {
+    el.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Aucune sauvegarde. Elles sont créées automatiquement avant chaque modification de résultat.</p>';
+    return;
+  }
+  el.innerHTML = keys.map(k => {
+    const s = JSON.parse(localStorage.getItem(k));
+    const d = new Date(s.ts);
+    const label = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+      + ' · ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return `<div class="backup-row">
+      <div>
+        <div style="font-weight:700;font-size:13px;">${label}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${s.count} résultat${s.count > 1 ? 's' : ''} sauvegardés</div>
+      </div>
+      <button class="btn-admin" onclick="adminRestoreSnapshot('${k}')" style="flex-shrink:0;white-space:nowrap;">⏮ Restaurer</button>
+    </div>`;
+  }).join('');
+}
+
+async function adminRestoreSnapshot(key) {
+  if (!db) return;
+  const raw = localStorage.getItem(key);
+  if (!raw) { showToast('❌ Sauvegarde introuvable', '#FF1744'); return; }
+  const s = JSON.parse(raw);
+  const d = new Date(s.ts);
+  const label = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+    + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  if (!confirm(`Restaurer la sauvegarde du ${label} ?\n\n${s.count} résultats seront restaurés et tous les points recalculés.`)) return;
+
+  adminTakeSnapshot(); // snapshot current state before overwriting
+  showLoading(true);
+  try {
+    let restored = 0;
+    for (const r of s.results) {
+      const { error } = await db.from('matches').update({
+        result_home: r.result_home,
+        result_away: r.result_away,
+        result_scorers: r.result_scorers,
+      }).eq('id', r.id);
+      if (!error) {
+        const idx = state.matches.findIndex(m => m.id === r.id);
+        if (idx >= 0) {
+          state.matches[idx].result_home = r.result_home;
+          state.matches[idx].result_away = r.result_away;
+          state.matches[idx].result_scorers = r.result_scorers;
+        }
+        restored++;
+      }
+    }
+    await adminRefreshLeaderboard();
+    showToast(`✅ ${restored} résultats restaurés · points recalculés`);
+    populateAdminMatchSelect();
+    renderMatches();
+    adminRenderBackups();
+  } catch (err) {
+    showToast('❌ ' + (err.message || err), '#FF1744');
   } finally {
     showLoading(false);
   }

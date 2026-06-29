@@ -2388,11 +2388,23 @@ select:focus:not(:focus-visible) { outline: none; }
             (<code style="color:var(--accent)">Mbappé ×2, Giroud</code>).
             Les matchs déjà renseignés apparaissent en vert.
           </p>
+          <input class="admin-input" type="search" placeholder="🔍 Rechercher une équipe ou un joueur…"
+            oninput="adminFilterBulk(this.value)" style="margin-bottom:10px;">
           <div id="admin-bulk-list"><p style="font-size:13px;color:var(--text-muted);">Chargement…</p></div>
           <button id="admin-bulk-save-btn" class="btn-admin success"
             style="margin-top:14px;width:100%;" onclick="adminBulkSave()">
             💾 Tout sauvegarder + recalculer les points
           </button>
+        </div>
+      </div>
+
+      <div class="admin-section">
+        <div class="admin-title">🏆 Qualifiés — phases finales</div>
+        <div class="admin-card">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6;">
+            Renseigne les équipes qualifiées au fur et à mesure. Seuls les matchs encore indéterminés (???) sont affichés.
+          </p>
+          <div id="admin-knockout-list"><p style="font-size:13px;color:var(--text-muted);">Chargement…</p></div>
         </div>
       </div>
 
@@ -3101,6 +3113,7 @@ function switchTab(tab) {
     document.getElementById('admin-app-url').value = state.settings.appUrl;
     document.getElementById('admin-slack-channel').value = state.settings.slackChannel;
     adminRenderBulkEntry();
+    adminRenderKnockoutEntry();
     adminRenderBackups();
   }
 }
@@ -3129,7 +3142,7 @@ async function loadMatches() {
   state.matches = MATCHES_SEED.map(m => ({ ...m }));
   if (!db) return;
   // Résultats + joueurs publiés par l'admin depuis Supabase
-  const { data, error } = await db.from('matches').select('id,result_home,result_away,result_scorers,home_players,away_players').order('id');
+  const { data, error } = await db.from('matches').select('id,home,away,home_flag,away_flag,result_home,result_away,result_scorers,home_players,away_players').order('id');
   if (error || !data) return;
   const dbMap = {};
   for (const r of data) dbMap[r.id] = r;
@@ -3138,6 +3151,11 @@ async function loadMatches() {
     if (!r) return m;
     return {
       ...m,
+      // Knockout slots: pick up real team names saved by admin
+      home:      (m.home === '???' && r.home && r.home !== '???') ? r.home : m.home,
+      away:      (m.away === '???' && r.away && r.away !== '???') ? r.away : m.away,
+      home_flag: (m.home === '???' && r.home_flag) ? r.home_flag : m.home_flag,
+      away_flag: (m.away === '???' && r.away_flag) ? r.away_flag : m.away_flag,
       result_home: r.result_home,
       result_away: r.result_away,
       result_scorers: r.result_scorers || [],
@@ -4038,6 +4056,87 @@ function adminRenderBulkEntry() {
         value="${scorerStr}">
     </div>`;
   }).join('');
+}
+
+function adminFilterBulk(q) {
+  const lq = q.toLowerCase().trim();
+  document.querySelectorAll('#admin-bulk-list .bulk-row').forEach(row => {
+    row.style.display = (!lq || row.textContent.toLowerCase().includes(lq)) ? '' : 'none';
+  });
+}
+
+function adminRenderKnockoutEntry() {
+  const container = document.getElementById('admin-knockout-list');
+  if (!container) return;
+
+  const knockoutPhases = ['Seizième de finale', 'Huitième de finale', 'Quart de finale', 'Demi-finale', 'Finale', 'Match pour la 3e place'];
+  const pending = state.matches.filter(m =>
+    knockoutPhases.some(p => m.phase?.includes(p)) && (m.home === '???' || m.away === '???')
+  ).sort((a, b) => a.id - b.id);
+
+  if (pending.length === 0) {
+    container.innerHTML = '<p style="font-size:13px;color:var(--accent);">✅ Toutes les équipes des phases finales sont renseignées.</p>';
+    return;
+  }
+
+  const teamOptions = Object.keys(TEAMS)
+    .filter(t => t !== '???')
+    .sort()
+    .map(t => `<option value="${t}">${TEAMS[t].flag || ''} ${t}</option>`)
+    .join('');
+
+  container.innerHTML = pending.map(m => `
+    <div class="bulk-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
+      <div style="font-size:10px;font-family:'Russo One',sans-serif;color:var(--text-muted);letter-spacing:1px;width:100%;">
+        ${m.phase} · ${m.match_date} ${m.match_time}
+      </div>
+      <select class="admin-select" id="ko-home-${m.id}" style="margin:0;flex:1;min-width:130px;">
+        <option value="">-- Équipe domicile --</option>
+        ${m.home !== '???' ? `<option value="${m.home}" selected>${TEAMS[m.home]?.flag || ''} ${m.home}</option>` : teamOptions}
+      </select>
+      <span style="color:var(--text-muted);font-weight:700;">vs</span>
+      <select class="admin-select" id="ko-away-${m.id}" style="margin:0;flex:1;min-width:130px;">
+        <option value="">-- Équipe extérieur --</option>
+        ${m.away !== '???' ? `<option value="${m.away}" selected>${TEAMS[m.away]?.flag || ''} ${m.away}</option>` : teamOptions}
+      </select>
+      <button class="btn-admin success" onclick="adminSaveKnockoutMatch(${m.id})" style="flex-shrink:0;">
+        💾 Enregistrer
+      </button>
+    </div>`).join('');
+}
+
+async function adminSaveKnockoutMatch(matchId) {
+  if (!db) return;
+  const m = state.matches.find(x => x.id === matchId);
+  if (!m) return;
+
+  const homeTeam = document.getElementById('ko-home-' + matchId)?.value;
+  const awayTeam = document.getElementById('ko-away-' + matchId)?.value;
+  if (!homeTeam || !awayTeam) { showToast('⚠️ Choisis les deux équipes', '#FF9800'); return; }
+
+  const homeData = TEAMS[homeTeam] || {};
+  const awayData  = TEAMS[awayTeam]  || {};
+
+  const row = {
+    id: m.id, phase: m.phase,
+    home: homeTeam, away: awayTeam,
+    home_flag: homeData.flag || '', away_flag: awayData.flag || '',
+    match_date: m.match_date, match_time: m.match_time,
+    home_players: homeData.players || [], away_players: awayData.players || [],
+    result_home: m.result_home ?? null, result_away: m.result_away ?? null,
+    result_scorers: m.result_scorers || [],
+  };
+
+  const { error } = await db.from('matches').upsert(row, { onConflict: 'id' });
+  if (error) { showToast('❌ ' + error.message, '#FF1744'); return; }
+
+  const idx = state.matches.findIndex(x => x.id === matchId);
+  if (idx >= 0) Object.assign(state.matches[idx], row);
+
+  showToast(`✅ ${homeTeam} vs ${awayTeam} enregistré · visible par tous`);
+  adminRenderKnockoutEntry();
+  adminRenderBulkEntry();
+  renderMatches();
 }
 
 function parseBulkScorers(str) {

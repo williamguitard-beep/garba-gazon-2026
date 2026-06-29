@@ -1139,6 +1139,37 @@ body::after {
   margin-bottom: 6px;
 }
 
+/* ===== BULK ENTRY ===== */
+.bulk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  margin-bottom: 4px;
+  background: var(--surface2);
+  transition: border-color 0.15s;
+}
+.bulk-row.bulk-done { border-color: rgba(0,200,83,0.28); background: rgba(0,200,83,0.03); }
+.bulk-team {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600;
+  flex: 1; min-width: 90px; overflow: hidden;
+}
+.bulk-team.right { flex-direction: row-reverse; text-align: right; }
+.bulk-score-block { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.bulk-score {
+  width: 40px !important; height: 34px !important;
+  font-size: 16px !important; padding: 0 !important; text-align: center;
+}
+.bulk-scorers-input {
+  flex: 1 1 100%; font-size: 12px !important;
+  padding: 6px 10px !important; margin: 0 !important;
+}
+.bulk-id { font-size: 9px; font-family:'Share Tech Mono',monospace; color:var(--text-muted); min-width:22px; flex-shrink:0; }
+
 /* ===== BACKUP ROWS ===== */
 .backup-row {
   display: flex;
@@ -2350,6 +2381,22 @@ select:focus:not(:focus-visible) { outline: none; }
       </div>
 
       <div class="admin-section">
+        <div class="admin-title">⚡ Saisie rapide — tous les matchs joués</div>
+        <div class="admin-card">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6;">
+            Tous les matchs passés en une seule vue. Entre le score et les buteurs séparés par virgule
+            (<code style="color:var(--accent)">Mbappé ×2, Giroud</code>).
+            Les matchs déjà renseignés apparaissent en vert.
+          </p>
+          <div id="admin-bulk-list"><p style="font-size:13px;color:var(--text-muted);">Chargement…</p></div>
+          <button id="admin-bulk-save-btn" class="btn-admin success"
+            style="margin-top:14px;width:100%;" onclick="adminBulkSave()">
+            💾 Tout sauvegarder + recalculer les points
+          </button>
+        </div>
+      </div>
+
+      <div class="admin-section">
         <div class="admin-title">👥 Effectifs des équipes</div>
         <div class="admin-card">
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6;">
@@ -3053,6 +3100,7 @@ function switchTab(tab) {
     populateAdminTeamSelect();
     document.getElementById('admin-app-url').value = state.settings.appUrl;
     document.getElementById('admin-slack-channel').value = state.settings.slackChannel;
+    adminRenderBulkEntry();
     adminRenderBackups();
   }
 }
@@ -3942,6 +3990,122 @@ async function adminSaveResult() {
     showToast('❌ ' + err.message, '#FF1744');
   } finally {
     showLoading(false);
+  }
+}
+
+// =====================================================================
+// BULK ENTRY
+// =====================================================================
+function adminRenderBulkEntry() {
+  const container = document.getElementById('admin-bulk-list');
+  if (!container) return;
+
+  const locked = state.matches
+    .filter(m => m.home !== '???' && isMatchLocked(m))
+    .sort((a, b) => a.id - b.id);
+
+  if (locked.length === 0) {
+    container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Aucun match joué pour l\'instant.</p>';
+    return;
+  }
+
+  container.innerHTML = locked.map(m => {
+    const hasResult = m.result_home !== null && m.result_home !== undefined;
+    const scorerCounts = {};
+    for (const s of (m.result_scorers || [])) scorerCounts[s] = (scorerCounts[s] || 0) + 1;
+    const scorerStr = Object.entries(scorerCounts)
+      .map(([name, count]) => count > 1 ? `${name} ×${count}` : name).join(', ');
+
+    return `<div class="bulk-row ${hasResult ? 'bulk-done' : ''}">
+      <span class="bulk-id">#${m.id}</span>
+      <div class="bulk-team">
+        <span>${m.home_flag || ''}</span><span>${m.home}</span>
+      </div>
+      <div class="bulk-score-block">
+        <input type="number" class="result-score-input bulk-score"
+          id="bulk-h-${m.id}" min="0" max="30" placeholder="?"
+          value="${hasResult ? m.result_home : ''}">
+        <span class="result-dash" style="font-size:14px;">—</span>
+        <input type="number" class="result-score-input bulk-score"
+          id="bulk-a-${m.id}" min="0" max="30" placeholder="?"
+          value="${hasResult ? m.result_away : ''}">
+      </div>
+      <div class="bulk-team right">
+        <span>${m.away}</span><span>${m.away_flag || ''}</span>
+      </div>
+      <input type="text" class="admin-input bulk-scorers-input"
+        id="bulk-s-${m.id}" placeholder="Buteurs : Mbappé ×2, Giroud…"
+        value="${scorerStr}">
+    </div>`;
+  }).join('');
+}
+
+function parseBulkScorers(str) {
+  if (!str || !str.trim()) return [];
+  const scorers = [];
+  str.split(',').forEach(part => {
+    const trimmed = part.trim();
+    if (!trimmed) return;
+    const m = trimmed.match(/^(.+?)\s*[×x×](\d+)$/i);
+    if (m) {
+      const name = m[1].trim();
+      const count = Math.min(parseInt(m[2]), 10);
+      for (let i = 0; i < count; i++) scorers.push(name);
+    } else {
+      scorers.push(trimmed);
+    }
+  });
+  return scorers;
+}
+
+async function adminBulkSave() {
+  if (!db) return;
+
+  const locked = state.matches.filter(m => m.home !== '???' && isMatchLocked(m));
+  const toSave = [];
+  for (const m of locked) {
+    const hEl = document.getElementById('bulk-h-' + m.id);
+    const aEl = document.getElementById('bulk-a-' + m.id);
+    const sEl = document.getElementById('bulk-s-' + m.id);
+    if (!hEl || !aEl) continue;
+    const rh = parseInt(hEl.value);
+    const ra = parseInt(aEl.value);
+    if (isNaN(rh) || isNaN(ra)) continue;
+    toSave.push({ m, rh, ra, scorers: parseBulkScorers(sEl?.value || '') });
+  }
+
+  if (toSave.length === 0) { showToast('⚠️ Aucun score saisi', '#FF9800'); return; }
+
+  adminTakeSnapshot();
+  const btn = document.getElementById('admin-bulk-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = `⏳ Enregistrement de ${toSave.length} résultats…`; }
+  showLoading(true);
+
+  try {
+    let saved = 0;
+    for (const { m, rh, ra, scorers } of toSave) {
+      const { error } = await db.from('matches').update({
+        result_home: rh, result_away: ra, result_scorers: scorers,
+      }).eq('id', m.id);
+      if (!error) {
+        const idx = state.matches.findIndex(x => x.id === m.id);
+        if (idx >= 0) {
+          state.matches[idx].result_home = rh;
+          state.matches[idx].result_away = ra;
+          state.matches[idx].result_scorers = scorers;
+        }
+        saved++;
+      }
+    }
+    await adminRefreshLeaderboard();
+    showToast(`✅ ${saved} résultats enregistrés · points recalculés`);
+    adminRenderBulkEntry();
+    renderMatches();
+  } catch (err) {
+    showToast('❌ ' + (err.message || err), '#FF1744');
+  } finally {
+    showLoading(false);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Tout sauvegarder + recalculer les points'; }
   }
 }
 

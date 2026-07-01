@@ -2402,7 +2402,7 @@ select:focus:not(:focus-visible) { outline: none; }
         <div class="admin-title">🏆 Qualifiés — phases finales</div>
         <div class="admin-card">
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6;">
-            Renseigne les équipes qualifiées au fur et à mesure. Seuls les matchs encore indéterminés (???) sont affichés.
+            Renseigne ou corrige les équipes qualifiées. Les matchs déjà définis apparaissent en vert — tu peux les modifier à tout moment.
           </p>
           <div id="admin-knockout-list"><p style="font-size:13px;color:var(--text-muted);">Chargement…</p></div>
         </div>
@@ -4070,39 +4070,43 @@ function adminRenderKnockoutEntry() {
   if (!container) return;
 
   const knockoutPhases = ['Seizième de finale', 'Huitième de finale', 'Quart de finale', 'Demi-finale', 'Finale', 'Match pour la 3e place'];
-  const pending = state.matches.filter(m =>
-    knockoutPhases.some(p => m.phase?.includes(p)) && (m.home === '???' || m.away === '???')
-  ).sort((a, b) => a.id - b.id);
+  const matches = state.matches
+    .filter(m => knockoutPhases.some(p => m.phase?.includes(p)))
+    .sort((a, b) => a.id - b.id);
 
-  if (pending.length === 0) {
-    container.innerHTML = '<p style="font-size:13px;color:var(--accent);">✅ Toutes les équipes des phases finales sont renseignées.</p>';
+  if (matches.length === 0) {
+    container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Aucun match de phase finale trouvé.</p>';
     return;
   }
 
-  const teamOptions = Object.keys(TEAMS)
+  const teamOptions = name => Object.keys(TEAMS)
     .filter(t => t !== '???')
     .sort()
-    .map(t => `<option value="${t}">${TEAMS[t].flag || ''} ${t}</option>`)
+    .map(t => `<option value="${t}" ${t === name ? 'selected' : ''}>${TEAMS[t].flag || ''} ${t}</option>`)
     .join('');
 
-  container.innerHTML = pending.map(m => `
-    <div class="bulk-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
-      <div style="font-size:10px;font-family:'Russo One',sans-serif;color:var(--text-muted);letter-spacing:1px;width:100%;">
-        ${m.phase} · ${m.match_date} ${m.match_time}
+  container.innerHTML = matches.map(m => {
+    const isSet = m.home !== '???' && m.away !== '???';
+    return `
+    <div class="bulk-row ${isSet ? 'bulk-done' : ''}">
+      <div style="font-size:10px;font-family:'Russo One',sans-serif;color:var(--text-muted);letter-spacing:1px;width:100%;display:flex;justify-content:space-between;">
+        <span>${m.phase} · ${m.match_date} ${m.match_time}</span>
+        ${isSet ? '<span style="color:var(--accent);">✓ défini</span>' : '<span style="color:#FF9800;">⏳ à définir</span>'}
       </div>
       <select class="admin-select" id="ko-home-${m.id}" style="margin:0;flex:1;min-width:130px;">
-        <option value="">-- Équipe domicile --</option>
-        ${m.home !== '???' ? `<option value="${m.home}" selected>${TEAMS[m.home]?.flag || ''} ${m.home}</option>` : teamOptions}
+        <option value="">-- Domicile --</option>
+        ${teamOptions(m.home)}
       </select>
-      <span style="color:var(--text-muted);font-weight:700;">vs</span>
+      <span style="color:var(--text-muted);font-weight:700;flex-shrink:0;">vs</span>
       <select class="admin-select" id="ko-away-${m.id}" style="margin:0;flex:1;min-width:130px;">
-        <option value="">-- Équipe extérieur --</option>
-        ${m.away !== '???' ? `<option value="${m.away}" selected>${TEAMS[m.away]?.flag || ''} ${m.away}</option>` : teamOptions}
+        <option value="">-- Extérieur --</option>
+        ${teamOptions(m.away)}
       </select>
-      <button class="btn-admin success" onclick="adminSaveKnockoutMatch(${m.id})" style="flex-shrink:0;">
-        💾 Enregistrer
+      <button class="btn-admin ${isSet ? '' : 'success'}" onclick="adminSaveKnockoutMatch(${m.id})" style="flex-shrink:0;">
+        💾
       </button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function adminSaveKnockoutMatch(matchId) {
